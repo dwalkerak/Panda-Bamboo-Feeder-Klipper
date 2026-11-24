@@ -15,6 +15,8 @@ struct Settings {
   uint16_t unload_measured_mm = 0;  // how far a full unload actually needed, learned from the last
                                     // successful one. 0 = never measured, fall back to the
                                     // preload + load estimate.
+  bool stop_unload_at_in2 = false;  // stop immediately when an unload clears the drive-gear
+                                    // sensor instead of pulling the usual extra 15 mm
   uint16_t stuck_mm = 80;       // feeding this far without the carriage returning = stuck
   uint8_t overfeed_mm = 8;      // fed after the carriage leaves its rest position: how much slack
                                 // the buffer parks with. More = fewer top-ups; the buffer test

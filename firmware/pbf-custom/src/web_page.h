@@ -179,6 +179,7 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
   <label>感測器偵測到料後再送 (mm，最多 5000)<input type="number" name="extruder_extra_mm" min="0" max="5000"></label>
   <label>路徑校準餘裕 (mm)<input type="number" name="path_margin_mm" min="0" max="250"></label>
   <label>鎖定進退料距離（禁止自動校準）<input type="checkbox" name="lock_move_distance"></label>
+  <label>IN2 無料時立即停止退料<input type="checkbox" name="stop_unload_at_in2"></label>
   <label>壓力測試噴頭溫度 (C)<input type="number" name="ptest_temp" min="150" max="300"></label>
   <label>%P 回抽時同步倒轉（非列印中）<input type="checkbox" name="retract_sync"></label>
   <label>%P 退料時放開齒輪（M117 PBF:FREE）<input type="checkbox" name="free_on_unload"></label>
@@ -242,6 +243,7 @@ const EN_TEXT={'連線中…':'Connecting…','入料口':'Inlet','齒輪':'Gear
 '列印中擠出這麼多還沒輔助進料就警報 (mm，0＝關閉)':'No-feed alarm after this much extrusion (mm, 0 = off)',
 '進料到擠出機自動停（耗材感測器）':'Stop loading at the extruder (filament sensor)','感測器偵測到料後再送 (mm，最多 5000)':'Feed on after the sensor triggers (mm, max 5000)',
 '路徑校準餘裕 (mm)':'Path calibration margin (mm)','鎖定進退料距離（禁止自動校準）':'Lock load/unload distances (no auto calibration)',
+'IN2 無料時立即停止退料':'Stop unloading immediately when IN2 clears',
 '壓力測試噴頭溫度 (C)':'Pressure test nozzle temperature (C)','%P 回抽時同步倒轉（非列印中）':'Follow %P retractions (not while printing)',
 '%P 退料時放開齒輪（M117 PBF:FREE）':'Release the gear when %P unloads (M117 PBF:FREE)','放開齒輪逾時 (秒)':'Release timeout (s)',
 '沒有訊號時靠回抽長度判斷':'Without a marker, detect unloads by retraction length','判定為退料的回抽長度 (mm)':'Retraction that counts as an unload (mm)',
@@ -467,6 +469,7 @@ sensor:'The switch sensor that tells whether the filament has reached the %P ext
 nofeed_mm:'While printing, if %P extrudes this much and the feeder never tops up, it alarms like a jam (pausing and notifying as set). It means the filament is not coming through the feeder: the extruder slips, a refill did not join, or the carriage sensor is broken. Set 0 when you print without the buffer on purpose.',
 extruder_extra_mm:'With “Stop loading at the extruder” on, the feeder feeds this much more after the sensor sees the filament, and the load distance becomes a limit. About 10 mm when the sensor sits at the extruder; for a sensor far from it (next to the spool, say) enter that tube length.',
 lock_move_distance:'Unticked, a load that reaches the sensor recalibrates “Feed distance”, and full unloads learn their length. Ticked, only the two distances under Controls are used, and a full unload is limited by “Retract distance”. Tick it once the distances are right and should stay that way.',
+stop_unload_at_in2:'Experimental filament capture: stop the feeder motor immediately when IN2 changes to empty during an unload. Unticked keeps the original behaviour, which retracts 15 mm farther so the filament clears the gear completely.',
 free_on_unload:'When the unload G-code sends <code>M117 PBF:FREE</code>, the motor is switched off and the gear spins freely, so %P pulls the filament out for tip forming; a bare <code>M117</code> at the end of the G-code grips again. Without that line in the unload G-code this never happens.',
 free_on_retract:'Fallback when there is no M117 marker (an unload from the %P touch screen, for example): while %P is not printing and its retractions add up to more than the length below, it counts as an unload and the gear is released. PAUSE retracts only about 3 mm, so it does not trigger this.'}:{
 pressure:'輔助進料時推料的馬達電流（L1＝250mA，每級加 50mA）。太低推不開緩衝活動件，會誤報卡料；太高只是馬達比較熱。建議用「壓力測試」決定。改了<b>立即套用</b>。',
@@ -482,6 +485,7 @@ sensor:'用來判斷耗材有沒有到 %P 擠出機的開關式感測器，影�
 nofeed_mm:'列印中 %P 擠出了這麼多，喂竹器卻一次都沒輔助進料，就當成卡料警報（依設定暫停列印並推播）。代表料不是從喂竹器來的：擠出機打滑、續料沒接上、或活動件感測器壞了。刻意不經過緩衝列印時設 0。',
 extruder_extra_mm:'「進料到擠出機自動停」開著時，感測器偵測到料後再送這麼多才停，原本的進料距離變成上限。感測器就在擠出機上時約 10mm；感測器離擠出機比較遠（例如裝在料架旁）就填那段管長。',
 lock_move_distance:'不勾時，進料碰到感測器會自動校準「距離進料」，完整退料也會學習退料長度。勾選後只用操作區填的兩個距離，「退到無料」的上限也直接用「距離退料」。距離量好、不想再被自動改寫時才勾。',
+stop_unload_at_in2:'實驗性保留耗材：退料時 IN2 變成無料就立刻停止馬達。不勾選時維持原本行為，繼續退 15mm，讓耗材完全退出齒輪。',
 free_on_unload:'退料 G-code 送出 <code>M117 PBF:FREE</code> 時，馬達斷電讓齒輪空轉，%P 自己把料抽出來做尖端成形；G-code 結尾送 <code>M117</code> 清掉就夾回來。退料 G-code 裡沒有這行就不會觸發。',
 free_on_retract:'沒有 M117 訊號時（例如用 %P 觸控螢幕退料）的備援：%P 沒在列印、累計回抽超過下面設定的長度，就當成退料並放開齒輪。PAUSE 只回抽約 3mm，不會誤觸發。'};
 {const box=document.createElement('div');box.className='help';box.id='helpbox';let open=null;
