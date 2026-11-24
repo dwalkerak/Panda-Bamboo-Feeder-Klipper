@@ -603,10 +603,24 @@ void holdMessageCases() {
   moonraker::value = moonraker::Snapshot();
 }
 
+void hubCases() {
+  const auto checkReading = [](uint32_t mv, bool ext, bool main) {
+    const auto decoded = hub::decode(mv);
+    check(hub::externalPresent(decoded) == ext && hub::mainPresent(decoded) == main,
+          "hub voltage maps to the expected sensor flags");
+  };
+  checkReading(0, false, false);
+  checkReading(1208, true, true);
+  checkReading(1498, true, false);
+  checkReading(1630, false, true);
+  checkReading(2177, false, false);
+  checkReading(2600, false, false);
+}
+
 int main() {
   settingsCases(); cleanupCases(); menuCases(); freeCases(); keyCases(); unloadCases();
-  relaxCases(); holdMessageCases();
+  relaxCases(); holdMessageCases(); hubCases();
   std::cout << "PASS: " << checks
             << " regression checks (settings/API, cleanup, menu, FREE, manual keys, unload limit, "
-               "cold relax, hold messages)\n";
+               "cold relax, hold messages, filament hub)\n";
 }

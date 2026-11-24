@@ -13,6 +13,7 @@ constexpr int kKeyUp = 5;    // "up / load" key, LOW = pressed
 constexpr int kKeyBack = 2;  // "back / unload" key, LOW = pressed
 constexpr int kIn1 = 14;     // first inlet sensor, HIGH = filament present
 constexpr int kIn2 = 21;     // second inlet sensor at the drive gear, HIGH = filament present
+constexpr int kHubSig = 4;   // optional filament hub, ADC1 channel 3
 constexpr int kBufEnd = 47;  // buffer carriage at its inner end, HIGH = at rest
 constexpr int kBufPos = 48;  // comb along the carriage travel (~3 mm pitch)
 constexpr int kBuzzer = 1;   // LEDC output in the stock firmware

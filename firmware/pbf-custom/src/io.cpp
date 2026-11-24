@@ -7,6 +7,9 @@ namespace io {
 namespace {
 
 constexpr uint32_t kSensorDebounceMs = 10;
+constexpr uint32_t kHubSampleIntervalMs = 2;
+constexpr uint32_t kHubSampleCount = 8;
+constexpr uint32_t kHubDebounceMs = 20;
 constexpr uint32_t kKeyDebounceMs = 20;
 constexpr uint32_t kHoldMs = 600;
 constexpr uint32_t kBothHoldMs = 1000;
@@ -24,6 +27,31 @@ Debounced in1{pins::kIn1}, in2{pins::kIn2}, buf_end{pins::kBufEnd}, buf_pos{pins
 Debounced key_up{pins::kKeyUp}, key_back{pins::kKeyBack};
 Sensors current{};
 volatile uint32_t buf_pos_edges = 0;
+
+hub::State hub_stable = hub::State::kEmpty;
+hub::State hub_candidate = hub::State::kEmpty;
+uint32_t hub_candidate_since = 0;
+uint32_t hub_last_sample_ms = 0;
+uint32_t hub_sample_sum = 0;
+uint32_t hub_samples = 0;
+
+void updateHub(uint32_t now) {
+  if (now - hub_last_sample_ms < kHubSampleIntervalMs) return;
+  hub_last_sample_ms = now;
+  // Spread the reads over the main loop to avoid delaying motor and sensor updates.
+  hub_sample_sum += analogReadMilliVolts(pins::kHubSig);
+  if (++hub_samples < kHubSampleCount) return;
+  const auto state = hub::decode(hub_sample_sum / hub_samples);
+  hub_sample_sum = 0;
+  hub_samples = 0;
+
+  if (state != hub_candidate) {
+    hub_candidate = state;
+    hub_candidate_since = now;
+  } else if (now - hub_candidate_since >= kHubDebounceMs) {
+    hub_stable = state;
+  }
+}
 
 struct KeyState {
   bool down = false;
@@ -126,6 +154,7 @@ void updateBuzzer(uint32_t now) {
 
 void begin() {
   uint32_t now = millis();
+  analogSetPinAttenuation(pins::kHubSig, ADC_11db);
   initDebounced(in1, now);
   initDebounced(in2, now);
   initDebounced(buf_end, now);
@@ -142,6 +171,7 @@ void begin() {
 
 void update() {
   uint32_t now = millis();
+  updateHub(now);
   debounce(in1, now, kSensorDebounceMs);
   debounce(in2, now, kSensorDebounceMs);
   debounce(buf_end, now, kSensorDebounceMs);
@@ -179,6 +209,7 @@ void update() {
 }
 
 const Sensors &sensors() { return current; }
+hub::State hubState() { return hub_stable; }
 uint32_t bufPosEdges() { return buf_pos_edges; }
 void resetBufPosEdges() { buf_pos_edges = 0; }
 

@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+#include "hub.h"
+
 namespace io {
 
 enum class KeyEvent {
@@ -29,6 +31,7 @@ void begin();
 void update();  // call from loop()
 
 const Sensors &sensors();
+hub::State hubState();
 // Edges of the buffer comb since the last reset. Counted in an ISR, so fast moves are not missed.
 uint32_t bufPosEdges();
 void resetBufPosEdges();
