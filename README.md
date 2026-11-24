@@ -116,6 +116,14 @@ python tests/run_regressions.py
 These exercise the production control functions with simulated printer and hardware inputs;
 they do not connect to a printer.
 
+### Fork firmware version
+
+The `[firmware_version]` section in `firmware/pbf-custom/platformio.ini` tracks the upstream
+base and the Panda-BFF release independently. The build reports them together as
+`0.11.9+bff.0.1.0` in the serial banner and the `fw` field of `/api/status`. Update
+`upstream` when changing the upstream base and `fork` when releasing a new Panda-BFF build.
+Changing only the fork version preserves the stored statistics.
+
 ## Changelog
 
 <details>

@@ -109,7 +109,13 @@ void drawSensors(int y) {
   drawCheck(17, y, s.in1);
   oled.drawStr(28, y, "IN2");
   drawCheck(45, y, s.in2);
-  oled.drawStr(57, y, s.buf_rest ? "BUF:home" : "BUF:out");
+  const auto hub_state = io::hubState();
+  if (hub_state != hub::State::kUnavailable) {
+    oled.drawStr(57, y, "Hub");
+    drawCheck(74, y, hub::mainPresent(hub_state));
+    oled.drawStr(85, y, "Ext");
+    drawCheck(102, y, hub::externalPresent(hub_state));
+  }
 }
 
 }  // namespace
@@ -133,7 +139,12 @@ void drawMain(const MainScreen &screen) {
   oled.drawStr(0, 12, screen.title.c_str());
   if (screen.feed >= 0) drawArrow(screen.feed);
   oled.setFont(u8g2_font_5x8_tf);
+  // Use the longer label's width so both buffer states start at the same x position.
+  const int buffer_x = oled.getDisplayWidth() - oled.getStrWidth("BUF:home");
+  oled.setClipWindow(0, 16, buffer_x - 2, 32);
   oled.drawStr(0, 24, screen.detail.c_str());
+  oled.setMaxClipWindow();
+  oled.drawStr(buffer_x, 24, io::sensors().buf_rest ? "BUF:home" : "BUF:out");
   String link = !motor::driverOk() ? String("NO 24V") : screen.ip_in_hint ? String() : net::shortStatus();
   char line[40];
   snprintf(line, sizeof(line), "L%u %umA %s", s.pressure_level, hw::pressureLevelToMa(s.pressure_level),

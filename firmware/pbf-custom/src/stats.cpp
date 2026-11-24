@@ -38,7 +38,8 @@ float pulled_frac = 0;
 
 uint16_t fwHash() {
   uint16_t h = 0;
-  for (const char *p = PBF_FW_VERSION; *p; ++p) h = (uint16_t)(h * 31 + (uint8_t)*p);
+  // Keep existing counters when only the fork version changes.
+  for (const char *p = PBF_UPSTREAM_FW_VERSION; *p; ++p) h = (uint16_t)(h * 31 + (uint8_t)*p);
   return h;
 }
 

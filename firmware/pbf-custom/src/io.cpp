@@ -28,8 +28,8 @@ Debounced key_up{pins::kKeyUp}, key_back{pins::kKeyBack};
 Sensors current{};
 volatile uint32_t buf_pos_edges = 0;
 
-hub::State hub_stable = hub::State::kEmpty;
-hub::State hub_candidate = hub::State::kEmpty;
+hub::State hub_stable = hub::State::kUnavailable;
+hub::State hub_candidate = hub::State::kUnavailable;
 uint32_t hub_candidate_since = 0;
 uint32_t hub_last_sample_ms = 0;
 uint32_t hub_sample_sum = 0;

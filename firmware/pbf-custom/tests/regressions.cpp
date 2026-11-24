@@ -627,15 +627,17 @@ void holdMessageCases() {
 void hubCases() {
   const auto checkReading = [](uint32_t mv, bool ext, bool main) {
     const auto decoded = hub::decode(mv);
-    check(hub::externalPresent(decoded) == ext && hub::mainPresent(decoded) == main,
+    check(decoded != hub::State::kUnavailable &&
+              hub::externalPresent(decoded) == ext && hub::mainPresent(decoded) == main,
           "hub voltage maps to the expected sensor flags");
   };
-  checkReading(0, false, false);
   checkReading(1208, true, true);
   checkReading(1498, true, false);
   checkReading(1630, false, true);
   checkReading(2177, false, false);
-  checkReading(2600, false, false);
+  check(hub::decode(0) == hub::State::kUnavailable, "zero hub signal is unavailable");
+  check(hub::decode(1099) == hub::State::kUnavailable, "hub signal below range is unavailable");
+  check(hub::decode(2301) == hub::State::kUnavailable, "hub signal above range is unavailable");
 }
 
 int main() {

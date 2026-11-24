@@ -5,13 +5,14 @@
 
 namespace hub {
 
-enum class State { kEmpty, kExternal, kMain, kBoth };
+enum class State { kUnavailable, kEmpty, kExternal, kMain, kBoth };
 
 inline State decode(uint32_t mv) {
   // GPIO4 measured 1208 mV (both), 1498 mV (external) and 2177 mV (empty).
   // Main-only is provisionally estimated at ~1630 mV by interpolating the
   // connector's 1543 mV reading between the external-only and empty readings.
-  if (mv < 1100 || mv > 2300) return State::kEmpty;
+  // Only report the hub when GPIO4 is in the expected signal range.
+  if (mv < 1100 || mv > 2300) return State::kUnavailable;
   if (mv < 1353) return State::kBoth;
   if (mv < 1564) return State::kExternal;
   if (mv < 1904) return State::kMain;

@@ -2981,11 +2981,16 @@ void appendStatusJson(String &out) {
   out += ",\"in1\":" + String(s.in1 ? 1 : 0);
   out += ",\"in2\":" + String(s.in2 ? 1 : 0);
   const auto hub_state = io::hubState();
-  out += ",\"hub\":{\"ext\":";
-  out += hub::externalPresent(hub_state) ? "true" : "false";
-  out += ",\"main\":";
-  out += hub::mainPresent(hub_state) ? "true" : "false";
-  out += "}";
+  const bool hub_connected = hub_state != hub::State::kUnavailable;
+  out += ",\"hub_connected\":";
+  out += hub_connected ? "true" : "false";
+  if (hub_connected) {
+    out += ",\"hub\":{\"ext\":";
+    out += hub::externalPresent(hub_state) ? "true" : "false";
+    out += ",\"main\":";
+    out += hub::mainPresent(hub_state) ? "true" : "false";
+    out += "}";
+  }
   out += ",\"buf_rest\":" + String(s.buf_rest ? 1 : 0);
   out += ",\"buf_full\":" + String(bufferFull(s) ? 1 : 0);
   out += ",\"comb_edges\":" + String(io::bufPosEdges());
