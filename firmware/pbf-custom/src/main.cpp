@@ -27,7 +27,8 @@ void printHelp() {
   Serial.println("commands: help status set <name> <value> defaults load unload stop jog <mm>");
   Serial.println("          ptest btest fulltest beep free grip verbose on|off reboot");
   Serial.println("settings: pressure buzzer steps_mm preload_mm load_mm stuck_mm idle_release");
-  Serial.println("          invert_dir load_speed buffer_speed unload_speed standby standby_min");
+  Serial.println("          invert_dir load_speed buffer_speed unload_speed stop_unload_at_in2");
+  Serial.println("          standby standby_min");
   Serial.println("          printer_name printer_host printer_port sensor (auto | none | name)");
 }
 
