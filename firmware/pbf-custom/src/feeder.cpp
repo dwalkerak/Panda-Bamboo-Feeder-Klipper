@@ -1776,6 +1776,12 @@ void updateUnloading(const io::Sensors &s) {
           settings::save();
         }
       }
+      if (cfg().stop_unload_at_in2) {
+        motor::halt();
+        enter(State::kUnloaded, "stopped at IN2");
+        io::beep(2);
+        return;
+      }
     }
   } else if (unload_gear_pos - pos() >= kUnloadExtraMm) {
     motor::stop();

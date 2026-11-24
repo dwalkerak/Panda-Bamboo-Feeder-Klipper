@@ -451,6 +451,12 @@ void unloadCases() {
         "full unload still finishes 15 mm past the gear");
 
   beginUnload(520, true, false);
+  settings::get().stop_unload_at_in2 = true;
+  unloadTo(511, false);
+  check(state == State::kUnloaded && !motor::moving && message == "stopped at IN2",
+        "optional IN2 stop bypasses the original 15 mm pull");
+
+  beginUnload(520, true, false);
   int jams = stats::unload_jams;
   unloadTo(519, true);
   check(state == State::kUnloading && motor::moving, "no jam before the limit");
