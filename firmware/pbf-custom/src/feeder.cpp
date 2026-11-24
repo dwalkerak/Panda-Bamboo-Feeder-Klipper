@@ -1763,6 +1763,9 @@ void updateUnloading(const io::Sensors &s) {
   float moved = unload_start_pos - pos();
   if (!unload_past_gear) {
     if (!s.in2) {
+      const bool stop_at_in2 = cfg().stop_unload_at_in2;
+      // Stop timer-driven steps before calibration logging or flash writes.
+      if (stop_at_in2) motor::halt();
       unload_past_gear = true;
       unload_gear_pos = pos();
       if (!cfg().lock_move_distance && unload_from_loaded && moved > 10) {
@@ -1776,8 +1779,7 @@ void updateUnloading(const io::Sensors &s) {
           settings::save();
         }
       }
-      if (cfg().stop_unload_at_in2) {
-        motor::halt();
+      if (stop_at_in2) {
         enter(State::kUnloaded, "stopped at IN2");
         io::beep(2);
         return;

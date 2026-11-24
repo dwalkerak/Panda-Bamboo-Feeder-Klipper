@@ -20,8 +20,13 @@ Settings current;
 constexpr size_t kNameMax = 12, kSensorMax = 64;
 struct Guard { ~Guard() {} };
 int saves = 0;
+bool moving_at_save = false;
 void sanitize(Settings &s);
-void save() { ++saves; sanitize(current); }
+void save() {
+  moving_at_save = motor::isMoving();
+  ++saves;
+  sanitize(current);
+}
 Settings &get() { return current; }
 void print(Print &) {}
 #include "settings_under_test.inc"
@@ -469,6 +474,16 @@ void unloadCases() {
   unloadTo(480, false);
   check(settings::get().unload_measured_mm == 480 && fullUnloadLimit() == 500,
         "unload from the printer relearns the limit");
+
+  beginUnload(1000, true, true);
+  settings::get().stop_unload_at_in2 = true;
+  settings::get().unload_measured_mm = 500;
+  int saves_before_unload = settings::saves;
+  unloadTo(480, false);
+  check(settings::saves == saves_before_unload + 1 && !settings::moving_at_save,
+        "optional IN2 stop halts the motor before saving the learned distance");
+  check(settings::get().unload_measured_mm == 480 && fullUnloadLimit() == 500,
+        "optional IN2 stop still learns the unload limit");
 
   beginUnload(600, false, false);
   unloadTo(600, true);
