@@ -245,6 +245,9 @@ uint32_t topup_seq = 0;   // counts finished top-ups, so a test can wait for the
 // loading
 bool load_soft_phase = false;
 float load_start_pos = 0;
+float load_count_start_pos = 0;
+float load_target_mm = 0;
+bool load_hub_pending = false;
 bool load_ext_armed = false;    // stop when the K1 toolhead sensor sees the filament
 bool load_ext_prev = false;     // last toolhead sensor reading, for edge detection
 bool load_ext_baseline = false; // a reading has been taken since the load started
@@ -287,13 +290,16 @@ uint32_t relax_wait_ms = 0;  // the carriage has been out with nothing else goin
 float relax_start_pos = 0;
 
 // unloading
-float load_target_mm = 0;
 float unload_start_pos = 0;
 float unload_limit_mm = 0;
 bool unload_past_gear = false;
 float unload_gear_pos = 0;
 bool unload_full = false;   // "unload until empty", so reaching the limit means something jammed
 bool unload_from_loaded = false;  // started with the filament all the way at the printer
+enum class HubUnloadPhase : uint8_t { kBypass, kWaiting, kExtra };
+HubUnloadPhase hub_unload_phase = HubUnloadPhase::kBypass;
+bool hub_unload_in2_armed = false;
+uint16_t hub_unload_extra_mm = 0;
 
 // Pressure test, in two parts that measure two different things (see ptestTick):
 //   PUSH: the run current needed to shove filament into the buffer. Costs no filament - the
@@ -705,11 +711,47 @@ void startPreload() {
 }
 
 // Feeds `mm` towards the printer, the last kSoftLoadMm slowly.
+void startLoadMove(float mm) {
+  const float fast = mm - kSoftLoadMm;
+  load_soft_phase = fast <= 0;
+  if (load_soft_phase) {
+    if (mm > 0) motor::moveMm(Dir::kFeed, mm, kSoftLoadSpeed);
+    else motor::halt();
+  } else {
+    motor::moveMm(Dir::kFeed, fast, cfg().load_speed);
+  }
+}
+
+void armHubLoad() {
+  load_count_start_pos = load_start_pos;
+  const auto hub_state = io::hubState();
+  load_hub_pending = cfg().feed_distance_from_hub_main &&
+                     hub_state != hub::State::kUnavailable && !hub::mainPresent(hub_state);
+}
+
+void resetLoadAtHub() {
+  if (!load_hub_pending) return;
+  const auto hub_state = io::hubState();
+  if (hub_state == hub::State::kUnavailable) {
+    load_hub_pending = false;
+    return;
+  }
+  const float edge_pos = pos();
+  if (!hub::mainPresent(hub_state) || edge_pos - load_start_pos >= load_target_mm ||
+      (!motor::isMoving() && load_soft_phase)) return;
+
+  load_hub_pending = false;
+  load_count_start_pos = edge_pos;
+  startLoadMove(load_target_mm);
+  logf("load: Hub Main detected filament, restarting the distance count");
+}
+
 void startLoad(float mm, bool full) {
   applyMovePressure();
   load_full = full;
   load_start_pos = pos();
   load_target_mm = mm;
+  armHubLoad();
   moonraker::Snapshot k1 = moonraker::snapshot();
   load_ext_armed = cfg().stop_at_extruder;
   load_ext_baseline = k1.fresh;
@@ -727,14 +769,18 @@ void startLoad(float mm, bool full) {
       logf("load: the %s filament sensor ALREADY sees filament - no stop until it clears first", pn());
     else logf("load: will stop when the %s filament sensor sees the filament", pn());
   }
-  float fast = mm - kSoftLoadMm;
-  load_soft_phase = fast <= 0;
-  if (load_soft_phase) motor::moveMm(Dir::kFeed, mm, kSoftLoadSpeed);
-  else motor::moveMm(Dir::kFeed, fast, cfg().load_speed);
+  startLoadMove(mm);
   enter(State::kLoading, "LOAD 0/" + String(mm, 0) + "mm");
 }
 
-// Pulls the filament back until the tip passes the drive gear, or for at most `limit_mm`.
+void armHubUnload() {
+  hub_unload_phase = cfg().stop_unload_at_hub_main && hub::mainPresent(io::hubState())
+                         ? HubUnloadPhase::kWaiting : HubUnloadPhase::kBypass;
+  hub_unload_in2_armed = cfg().stop_unload_at_in2 && io::sensors().in2;
+  hub_unload_extra_mm = cfg().hub_main_unload_extra_mm;
+}
+
+// Pulls the filament back until a configured stop, or for at most `limit_mm` before the stop.
 void startUnload(float limit_mm, bool full) {
   applyMovePressure();
   unload_full = full;
@@ -745,6 +791,7 @@ void startUnload(float limit_mm, bool full) {
   unload_start_pos = pos();
   unload_limit_mm = limit_mm;
   unload_past_gear = false;
+  armHubUnload();
   motor::run(Dir::kRetract, cfg().unload_speed);
   enter(State::kUnloading, "pulling back");
 }
@@ -1759,8 +1806,52 @@ void updateFeeding(const io::Sensors &s, bool in1_fall) {
   message = "fed " + String(fed, 1) + "mm";
 }
 
+bool updateHubUnload(const io::Sensors &s, float moved) {
+  if (hub_unload_phase == HubUnloadPhase::kBypass) return false;
+  const bool in2_cleared = hub_unload_in2_armed && !s.in2;
+  if (hub_unload_phase == HubUnloadPhase::kExtra) {
+    if (in2_cleared || !motor::isMoving()) {
+      motor::halt();
+      enter(s.in2 ? State::kStaged : State::kUnloaded,
+            in2_cleared ? "stopped at IN2 after Hub Main" : "Hub Main extra retraction done");
+      io::beep(2);
+    }
+    return true;
+  }
+
+  const auto hub_state = io::hubState();
+  if (hub_state == hub::State::kUnavailable) {
+    hub_unload_phase = HubUnloadPhase::kBypass;
+    return false;
+  }
+  const bool main_on = hub::mainPresent(hub_state);
+  // A tie is ambiguous because the two sensors are debounced independently.
+  if (in2_cleared) {
+    motor::halt();
+    stats::addUnloadJam();
+    const char *why = main_on ? "IN2 cleared before Hub Main" : "IN2 and Hub Main cleared together";
+    enterAlarm(State::kError, why);
+    return true;
+  }
+  if (main_on || !motor::isMoving()) return false;
+
+  motor::halt();
+  float extra = hub_unload_extra_mm;
+  if (!unload_full) extra = min(extra, unload_limit_mm - moved);
+  if (extra > 0) {
+    hub_unload_phase = HubUnloadPhase::kExtra;
+    motor::moveMm(Dir::kRetract, extra, cfg().unload_speed);
+    message = "Hub Main clear: extra retract";
+  } else {
+    enter(s.in2 ? State::kStaged : State::kUnloaded, "stopped at Hub Main");
+    io::beep(2);
+  }
+  return true;
+}
+
 void updateUnloading(const io::Sensors &s) {
   float moved = unload_start_pos - pos();
+  if (updateHubUnload(s, moved)) return;
   if (!unload_past_gear) {
     if (!s.in2) {
       const bool stop_at_in2 = cfg().stop_unload_at_in2;
@@ -2155,14 +2246,17 @@ void runState(const io::Sensors &s, uint32_t now) {
         } else if (k1.ext_sensor && !load_ext_prev) {  // rising edge anywhere in the load
           load_ext_prev = true;
           load_ext_armed = false;
+          load_hub_pending = false;
           load_reached_ext = true;
-          load_soft_phase = true;
-          float measured = pos() - load_start_pos;
+          const float end_pos = pos();
+          float measured = end_pos - load_start_pos;
           logf("load: %s filament sensor triggered after %.0f mm, feeding %u mm more", pn(),
                measured, cfg().extruder_extra_mm);
           // The same idea as the stock firmware's calibration, but without pulling anything back:
           // a load that started at the gear has just measured the real path length.
-          if (!cfg().lock_move_distance && load_from_staged && measured > 0) {
+          // A hub-relative move uses a different distance origin, so keep its configured target.
+          if (!cfg().lock_move_distance && load_from_staged &&
+              load_count_start_pos == load_start_pos && measured > 0) {
             uint16_t len = (uint16_t)(measured + cfg().path_margin_mm + 0.5f);
             if (len != cfg().load_mm) {
               logf("path calibrated: gear -> %s filament sensor is %.0f mm, load length now "
@@ -2175,20 +2269,14 @@ void runState(const io::Sensors &s, uint32_t now) {
           // A sensor next to the spool can be metres from the extruder: cover most of that at
           // the load speed and meet the extruder gently, like the rest of the load.
           float extra = cfg().extruder_extra_mm;
-          load_target_mm = measured + extra;
-          if (extra > kSoftLoadMm) {
-            load_soft_phase = false;
-            motor::moveMm(Dir::kFeed, extra - kSoftLoadMm, cfg().load_speed);
-          } else if (extra > 0) {
-            motor::moveMm(Dir::kFeed, extra, kSoftLoadSpeed);
-          } else {
-            motor::halt();
-          }
+          load_target_mm = end_pos - load_count_start_pos + extra;
+          startLoadMove(extra);
           break;
         } else {
           load_ext_prev = k1.ext_sensor;
         }
       }
+      resetLoadAtHub();
       if (!motor::isMoving()) {
         if (!load_soft_phase) {
           load_soft_phase = true;
@@ -2212,7 +2300,7 @@ void runState(const io::Sensors &s, uint32_t now) {
           io::beep(2);
         }
       } else {
-        message = "LOAD " + String(pos() - load_start_pos, 0) + "/" + String(load_target_mm, 0) + "mm";
+        message = "LOAD " + String(pos() - load_count_start_pos, 0) + "/" + String(load_target_mm, 0) + "mm";
       }
       break;
 

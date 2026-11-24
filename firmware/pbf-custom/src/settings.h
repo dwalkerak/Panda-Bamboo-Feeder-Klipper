@@ -17,6 +17,9 @@ struct Settings {
                                     // preload + load estimate.
   bool stop_unload_at_in2 = false;  // stop immediately when an unload clears the drive-gear
                                     // sensor instead of pulling the usual extra 15 mm
+  bool feed_distance_from_hub_main = false;  // reset a load's distance on the first Hub Main rise
+  bool stop_unload_at_hub_main = false;
+  uint16_t hub_main_unload_extra_mm = 80;
   uint16_t stuck_mm = 80;       // feeding this far without the carriage returning = stuck
   uint8_t overfeed_mm = 8;      // fed after the carriage leaves its rest position: how much slack
                                 // the buffer parks with. More = fewer top-ups; the buffer test
@@ -93,6 +96,7 @@ struct Link {
 
 namespace settings {
 constexpr uint16_t kMaxExtraMm = 5000;   // extruder_extra_mm
+constexpr uint16_t kMaxHubUnloadExtraMm = 1000;
 constexpr uint16_t kMaxMoveMm = 10000;   // load / unload distances, long enough for the extra above
 
 Settings &get();

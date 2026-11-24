@@ -63,6 +63,8 @@ void moveMm(Dir dir, float mm, float speed) {
 namespace io {
 Sensors value{true, true, false, false};
 const Sensors &sensors() { return value; }
+hub::State hub_value = hub::State::kUnavailable;
+hub::State hubState() { return hub_value; }
 std::vector<KeyEvent> events;
 KeyEvent nextKey() {
   if (events.empty()) return KeyEvent::kNone;
@@ -134,8 +136,15 @@ void startInsert() { state = State::kInserting; motor::moving = true; }
 void startKeyHold(bool) { ++holds; jogging = true; motor::moving = true; }
 float test_pos = 0;
 float pos() { return test_pos; }
+float load_start_pos = 0, load_count_start_pos = 0, load_target_mm = 0;
+bool load_soft_phase = false, load_hub_pending = false;
+constexpr float kSoftLoadMm = 40, kSoftLoadSpeed = 8;
 float unload_start_pos = 0, unload_limit_mm = 0, unload_gear_pos = 0;
 bool unload_full = false, unload_from_loaded = false, unload_past_gear = false;
+enum class HubUnloadPhase { kBypass, kWaiting, kExtra };
+HubUnloadPhase hub_unload_phase = HubUnloadPhase::kBypass;
+bool hub_unload_in2_armed = false;
+uint16_t hub_unload_extra_mm = 0;
 constexpr float kUnloadExtraMm = 15, kUnloadMarginMm = 300, kUnloadLearnExtraMm = 20;
 void fullTestFinish(bool, const char *, const String &) {}
 void testResultFinish(bool, const char *, const String &) {}
@@ -212,6 +221,20 @@ void settingsCases() {
   check(server.status == 200 && settings::get().pressure_level == 9 && settings::get().load_mm == 700,
         "valid web batch applied");
   check(settings::saves == saves + 1, "valid web batch persists once");
+
+  check(!settings::get().feed_distance_from_hub_main && !settings::get().stop_unload_at_hub_main &&
+            settings::get().hub_main_unload_extra_mm == 80, "hub controls default to off with 80 mm extra");
+  server.fields = {{"feed_distance_from_hub_main", "true"}, {"stop_unload_at_hub_main", "1"},
+                   {"hub_main_unload_extra_mm", "35"}};
+  handleSettingsPost();
+  check(server.status == 200 && settings::get().feed_distance_from_hub_main &&
+            settings::get().stop_unload_at_hub_main && settings::get().hub_main_unload_extra_mm == 35,
+        "hub controls accepted through the settings API");
+  server.fields = {{"stop_unload_at_hub_main", "0"}, {"hub_main_unload_extra_mm", "1001"}};
+  handleSettingsPost();
+  check(server.status == 400 && settings::get().stop_unload_at_hub_main &&
+            settings::get().hub_main_unload_extra_mm == 35,
+        "out-of-range hub retraction rejects the whole settings request");
 }
 
 void cleanupCases() {
@@ -427,6 +450,8 @@ void beginUnload(float limit, bool full, bool from_loaded) {
   unload_full = full;
   unload_from_loaded = from_loaded;
   unload_past_gear = false;
+  io::hub_value = hub::State::kUnavailable;
+  armHubUnload();
 }
 
 void unloadTo(float moved, bool in2) {
@@ -488,6 +513,127 @@ void unloadCases() {
   beginUnload(600, false, false);
   unloadTo(600, true);
   check(state == State::kStaged && !motor::moving, "distance unload still stops at its distance");
+  test_pos = 0;
+}
+
+void hubMotionCases() {
+  constexpr auto kEmpty = hub::State::kEmpty;
+  constexpr auto kMain = hub::State::kMain;
+  constexpr auto kUnavailable = hub::State::kUnavailable;
+  const auto beginHubFeed = [](hub::State sensor, bool enabled = true) {
+    settings::current = Settings();
+    settings::get().feed_distance_from_hub_main = enabled;
+    io::hub_value = sensor;
+    load_start_pos = test_pos = 100;
+    load_target_mm = 200;
+    motor::moves = 0;
+    armHubLoad();
+    startLoadMove(load_target_mm);
+  };
+
+  beginHubFeed(kEmpty);
+  test_pos = 130;
+  resetLoadAtHub();
+  check(load_count_start_pos == 100 && motor::moves == 1, "no hub edge keeps the original feed");
+  io::hub_value = kMain;
+  resetLoadAtHub();
+  check(load_count_start_pos == 130 && load_start_pos == 100 && motor::moves == 2 &&
+            load_target_mm == 200 && motor::move_mm == 160 && !load_soft_phase,
+        "hub edge resets the counted distance and re-plans the normal fast and slow feed");
+  io::hub_value = kEmpty;
+  resetLoadAtHub();
+  io::hub_value = kMain;
+  test_pos = 135;
+  resetLoadAtHub();
+  check(load_count_start_pos == 130 && motor::moves == 2, "hub feed reset can happen only once");
+
+  for (auto sensor : {kMain, kUnavailable, kEmpty}) {
+    beginHubFeed(sensor, sensor != kEmpty);
+    io::hub_value = kEmpty;
+    resetLoadAtHub();
+    io::hub_value = kMain;
+    resetLoadAtHub();
+    check(motor::moves == 1, "a disabled, initially occupied, or absent hub does not extend a feed");
+  }
+  beginHubFeed(kEmpty);
+  io::hub_value = kUnavailable;
+  resetLoadAtHub();
+  io::hub_value = kMain;
+  resetLoadAtHub();
+  check(motor::moves == 1, "a hub that drops out cannot create a feed edge when it returns");
+  beginHubFeed(kEmpty);
+  test_pos = 300;
+  load_soft_phase = true;
+  motor::moving = false;
+  io::hub_value = kMain;
+  resetLoadAtHub();
+  check(motor::moves == 1, "a hub edge at the end of a completed feed does not restart it");
+
+  const auto beginHubUnload = [](hub::State sensor, uint16_t extra, bool full = true,
+                                 bool in2_enabled = true) {
+    beginUnload(100, full, true);
+    settings::get().stop_unload_at_hub_main = true;
+    settings::get().hub_main_unload_extra_mm = extra;
+    settings::get().stop_unload_at_in2 = in2_enabled;
+    io::hub_value = sensor;
+    motor::moves = 0;
+    armHubUnload();
+  };
+  beginHubUnload(kMain, 0);
+  io::hub_value = kEmpty;
+  unloadTo(50, true);
+  check(state == State::kStaged && !motor::moving && motor::moves == 0,
+        "zero extra halts at Hub Main while the gear still holds filament");
+
+  beginHubUnload(kMain, 30);
+  io::hub_value = kEmpty;
+  unloadTo(50, true);
+  check(motor::moves == 1 && motor::move_dir == Dir::kRetract && motor::move_mm == 30 && motor::moving,
+        "hub edge schedules the configured extra retract");
+  unloadTo(60, false);
+  check(state == State::kUnloaded && !motor::moving && message == "stopped at IN2 after Hub Main",
+        "armed IN2 caps the extra retract after a valid hub edge");
+
+  beginHubUnload(kMain, 30, false, false);
+  io::hub_value = kEmpty;
+  unloadTo(95, true);
+  check(motor::move_mm == 5 && motor::moving, "distance unload caps the extra by the requested distance");
+  motor::moving = false;
+  unloadTo(100, true);
+  check(state == State::kStaged && message == "Hub Main extra retraction done",
+        "finishing the bounded retract stages filament still in the gear");
+
+  for (bool tied : {false, true}) {
+    beginHubUnload(kMain, 30);
+    settings::get().unload_measured_mm = 80;
+    const int saves = settings::saves;
+    const int jams = stats::unload_jams;
+    if (tied) io::hub_value = kEmpty;
+    unloadTo(50, false);
+    check(state == State::kError && !motor::moving && motor::moves == 0 &&
+              settings::saves == saves && settings::get().unload_measured_mm == 80 &&
+              stats::unload_jams == jams + 1,
+          "IN2 clearing first or with Hub Main faults without extra retract or calibration");
+  }
+
+  for (auto sensor : {kEmpty, kUnavailable, kMain}) {
+    beginHubUnload(sensor, 30);
+    io::hub_value = sensor == kMain ? kUnavailable : kMain;
+    unloadTo(30, true);
+    io::hub_value = kEmpty;
+    unloadTo(40, true);
+    check(state == State::kUnloading && motor::moves == 0,
+          "empty or absent at start, or a disconnect while armed, does not create an unload edge");
+    unloadTo(50, false);
+    check(state == State::kUnloaded && message == "stopped at IN2",
+          "unarmed hub unload falls back to existing IN2 logic");
+  }
+  beginUnload(100, true, false);
+  io::hub_value = kMain;
+  armHubUnload();
+  io::hub_value = kEmpty;
+  unloadTo(50, true);
+  check(state == State::kUnloading && motor::moving, "disabled hub stop ignores a valid falling edge");
   test_pos = 0;
 }
 
@@ -642,7 +788,7 @@ void hubCases() {
 
 int main() {
   settingsCases(); cleanupCases(); menuCases(); freeCases(); keyCases(); unloadCases();
-  relaxCases(); holdMessageCases(); hubCases();
+  relaxCases(); holdMessageCases(); hubCases(); hubMotionCases();
   std::cout << "PASS: " << checks
             << " regression checks (settings/API, cleanup, menu, FREE, manual keys, unload limit, "
                "cold relax, hold messages, filament hub)\n";

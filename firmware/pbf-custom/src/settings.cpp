@@ -41,6 +41,8 @@ void sanitize(Settings &s) {
   s.load_mm = clampValue<uint16_t>(s.load_mm, 1, kMaxMoveMm);
   s.unload_mm = clampValue<uint16_t>(s.unload_mm, 1, kMaxMoveMm);
   s.unload_measured_mm = clampValue<uint16_t>(s.unload_measured_mm, 0, kMaxMoveMm);
+  s.hub_main_unload_extra_mm = clampValue<uint16_t>(
+      s.hub_main_unload_extra_mm, 0, kMaxHubUnloadExtraMm);
   s.stuck_mm = clampValue<uint16_t>(s.stuck_mm, 30, 500);
   if (s.nofeed_mm) s.nofeed_mm = clampValue<uint16_t>(s.nofeed_mm, 30, 2000);
   s.overfeed_mm = clampValue<uint8_t>(s.overfeed_mm, 0, 25);
@@ -114,6 +116,9 @@ void load() {
   current.lock_move_distance = prefs.getBool("dist_lock", d.lock_move_distance);
   current.unload_measured_mm = prefs.getUShort("unload_ms", d.unload_measured_mm);
   current.stop_unload_at_in2 = prefs.getBool("unload_in2", d.stop_unload_at_in2);
+  current.feed_distance_from_hub_main = prefs.getBool("hub_feed_reset", d.feed_distance_from_hub_main);
+  current.stop_unload_at_hub_main = prefs.getBool("hub_unload", d.stop_unload_at_hub_main);
+  current.hub_main_unload_extra_mm = prefs.getUShort("hub_unload_mm", d.hub_main_unload_extra_mm);
   current.stuck_mm = prefs.getUShort("stuck", d.stuck_mm);
   current.overfeed_mm = prefs.getUChar("overfeed", d.overfeed_mm);
   current.ptest_temp = prefs.getUShort("ptest_t", d.ptest_temp);
@@ -176,6 +181,9 @@ void save() {
   prefs.putBool("dist_lock", current.lock_move_distance);
   prefs.putUShort("unload_ms", current.unload_measured_mm);
   prefs.putBool("unload_in2", current.stop_unload_at_in2);
+  prefs.putBool("hub_feed_reset", current.feed_distance_from_hub_main);
+  prefs.putBool("hub_unload", current.stop_unload_at_hub_main);
+  prefs.putUShort("hub_unload_mm", current.hub_main_unload_extra_mm);
   prefs.putUShort("stuck", current.stuck_mm);
   prefs.putUChar("overfeed", current.overfeed_mm);
   prefs.putUShort("ptest_t", current.ptest_temp);
@@ -235,6 +243,9 @@ void appendJson(String &out) {
   out += ",\"lock_move_distance\":" + String(s.lock_move_distance ? "true" : "false");
   out += ",\"unload_measured_mm\":" + String(s.unload_measured_mm);
   out += ",\"stop_unload_at_in2\":" + String(s.stop_unload_at_in2 ? "true" : "false");
+  out += ",\"feed_distance_from_hub_main\":" + String(s.feed_distance_from_hub_main ? "true" : "false");
+  out += ",\"stop_unload_at_hub_main\":" + String(s.stop_unload_at_hub_main ? "true" : "false");
+  out += ",\"hub_main_unload_extra_mm\":" + String(s.hub_main_unload_extra_mm);
   out += ",\"stuck_mm\":" + String(s.stuck_mm);
   out += ",\"overfeed_mm\":" + String(s.overfeed_mm);
   out += ",\"ptest_temp\":" + String(s.ptest_temp);
@@ -337,6 +348,10 @@ bool applyValue(Settings &s, const String &name, const String &value) {
   }
   else if (name == "unload_measured_mm") valid = assignInteger(s.unload_measured_mm, value, 0, kMaxMoveMm);
   else if (name == "stop_unload_at_in2") s.stop_unload_at_in2 = on;
+  else if (name == "feed_distance_from_hub_main") s.feed_distance_from_hub_main = on;
+  else if (name == "stop_unload_at_hub_main") s.stop_unload_at_hub_main = on;
+  else if (name == "hub_main_unload_extra_mm")
+    valid = assignInteger(s.hub_main_unload_extra_mm, value, 0, kMaxHubUnloadExtraMm);
   else if (name == "stuck_mm") valid = assignInteger(s.stuck_mm, value, 30, 500);
   else if (name == "overfeed_mm") valid = assignInteger(s.overfeed_mm, value, 0, 25);
   else if (name == "ptest_temp") valid = assignInteger(s.ptest_temp, value, 150, 300);

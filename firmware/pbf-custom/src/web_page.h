@@ -9,9 +9,9 @@ const char kIndexHtml[] PROGMEM = R"HTML(<!doctype html>
 <title>PBF 喂竹器</title>
 <style>
 :root{--bg:#f4f5f7;--card:#fff;--fg:#1d2330;--mut:#667085;--acc:#2f7d4f;--warn:#b42318;--bd:#e3e6ea;--orange:#e07b12;
---danger:#b42318;--g-motor:#ecf6ef;--g-speed:#fcefed;--g-screen:#edf2fb;--g-prn:#fbf5e6}
+--danger:#b42318;--g-motor:#ecf6ef;--g-speed:#fcefed;--g-screen:#edf2fb;--g-prn:#fbf5e6;--g-bff:#f1e8fa}
 @media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1f26;--fg:#e8eaed;--mut:#98a2b3;--acc:#3fa86a;--warn:#f97066;--bd:#2a313b;
---danger:#c8322a;--g-motor:#17271e;--g-speed:#2c1b1c;--g-screen:#18212f;--g-prn:#2a2416}}
+--danger:#c8322a;--g-motor:#17271e;--g-speed:#2c1b1c;--g-screen:#18212f;--g-prn:#2a2416;--g-bff:#302441}}
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.45 system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif;background:var(--bg);color:var(--fg)}
 main{max-width:720px;margin:0 auto;padding:12px 16px 40px}
@@ -54,6 +54,7 @@ border:1.5px solid var(--mut);background:none;color:var(--mut);font-size:12px;fo
 .help{font-size:13px;background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:8px 10px;margin:6px 0}
 .grp.motor{background:var(--g-motor)}.grp.speed{background:var(--g-speed)}
 .grp.screen{background:var(--g-screen)}.grp.prn{background:var(--g-prn)}
+.grp.bff{background:var(--g-bff)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .mut{color:var(--mut);font-size:13px}
 .tests{display:grid;gap:8px}
@@ -72,7 +73,11 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
   <div id="msg"></div>
   <div class="sens">
     <span class="pill" id="s_in1">入料口</span><span class="pill" id="s_in2">齒輪</span>
-    <span class="pill" id="s_buf">緩衝</span><span class="pill" id="s_drv">馬達電源24V</span><span class="pill" id="s_k1">%P</span>
+    <span class="pill" id="s_hub_main" hidden>Hub</span><span class="pill" id="s_hub_ext" hidden>Ext</span>
+    <span class="pill" id="s_buf">緩衝</span>
+  </div>
+  <div class="sens">
+    <span class="pill" id="s_drv">馬達電源24V</span><span class="pill" id="s_k1">%P</span>
   </div>
   <div class="mut" id="info" style="margin-top:8px"></div>
 </div>
@@ -179,7 +184,6 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
   <label>感測器偵測到料後再送 (mm，最多 5000)<input type="number" name="extruder_extra_mm" min="0" max="5000"></label>
   <label>路徑校準餘裕 (mm)<input type="number" name="path_margin_mm" min="0" max="250"></label>
   <label>鎖定進退料距離（禁止自動校準）<input type="checkbox" name="lock_move_distance"></label>
-  <label>IN2 無料時立即停止退料<input type="checkbox" name="stop_unload_at_in2"></label>
   <label>壓力測試噴頭溫度 (C)<input type="number" name="ptest_temp" min="150" max="300"></label>
   <label>%P 回抽時同步倒轉（非列印中）<input type="checkbox" name="retract_sync"></label>
   <label>%P 退料時放開齒輪（M117 PBF:FREE）<input type="checkbox" name="free_on_unload"></label>
@@ -188,6 +192,12 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
   <label>判定為退料的回抽長度 (mm)<input type="number" name="free_retract_mm" min="10" max="200"></label>
   <label>耗材用完時推播<input type="checkbox" name="notify_runout"></label>
   <div class="row" style="margin:8px 0 6px"><button type="button" data-cmd="notify_test">測試推播</button><span class="mut">需要 Mobileraker Companion</span></div>
+  </div>
+  <div class="grp bff"><h3>BFF: Bamboo Force Feeder</h3>
+  <label>IN2 無料時立即停止退料<input type="checkbox" name="stop_unload_at_in2"></label>
+  <label>Hub 感測器偵測到耗材時重算進料距離<input type="checkbox" name="feed_distance_from_hub_main"></label>
+  <label>Hub 感測器無料時停止退料<input type="checkbox" name="stop_unload_at_hub_main"></label>
+  <label>Hub 感測器無料後額外退料 (mm)<input type="number" name="hub_main_unload_extra_mm" min="0" max="1000" step="1"></label>
   </div>
   <div class="row" style="margin-top:10px"><button class="pri" type="submit">儲存設定</button><span class="mut" id="cfgmsg"></span></div>
 </form></div>
@@ -244,6 +254,9 @@ const EN_TEXT={'連線中…':'Connecting…','入料口':'Inlet','齒輪':'Gear
 '進料到擠出機自動停（耗材感測器）':'Stop loading at the extruder (filament sensor)','感測器偵測到料後再送 (mm，最多 5000)':'Feed on after the sensor triggers (mm, max 5000)',
 '路徑校準餘裕 (mm)':'Path calibration margin (mm)','鎖定進退料距離（禁止自動校準）':'Lock load/unload distances (no auto calibration)',
 'IN2 無料時立即停止退料':'Stop unloading immediately when IN2 clears',
+'Hub 感測器偵測到耗材時重算進料距離':'Reset feed distance when Hub sensor detects filament',
+'Hub 感測器無料時停止退料':'Stop unload when Hub sensor clears',
+'Hub 感測器無料後額外退料 (mm)':'Extra retraction after Hub sensor clears (mm)',
 '壓力測試噴頭溫度 (C)':'Pressure test nozzle temperature (C)','%P 回抽時同步倒轉（非列印中）':'Follow %P retractions (not while printing)',
 '%P 退料時放開齒輪（M117 PBF:FREE）':'Release the gear when %P unloads (M117 PBF:FREE)','放開齒輪逾時 (秒)':'Release timeout (s)',
 '沒有訊號時靠回抽長度判斷':'Without a marker, detect unloads by retraction length','判定為退料的回抽長度 (mm)':'Retraction that counts as an unload (mm)',
@@ -290,6 +303,12 @@ async function refresh(){
     $('#fw').textContent='v'+s.fw;
     pill('#s_in1',s.in1,s.in1?L('入料口：有料','Inlet: filament'):L('入料口：無料','Inlet: empty'));
     pill('#s_in2',s.in2,s.in2?L('齒輪：已咬料','Gear: gripped'):L('齒輪：無料','Gear: empty'));
+    const hub=s.hub_connected===false?null:s.hub;
+    for(const [id,label,sensor] of [['#s_hub_main','Hub','main'],['#s_hub_ext','Ext','ext']]){
+      $(id).hidden=!hub;
+      const on=!!hub?.[sensor];
+      pill(id,on,label+(on?L('：有料',': filament'):L('：無料',': empty')));
+    }
     pill('#s_buf',s.buf_full,L('緩衝：','Buffer: ')+(s.buf_rest?L('原位','home'):L('撐開','out'))+(s.buf_full?L('・有存料',' · stocked'):L('・空',' · empty')));
     pill('#s_drv',s.driver,s.driver?L('馬達電源24V','Motor 24V'):L('馬達電源24V：沒電','Motor 24V: off'));
     const k1=K1NAMES[s.k1]||s.k1;pill('#s_k1',s.k1!=='not connected'&&s.k1!=='off',PN+L('：',': ')+k1+(s.k1_toolhead?L('・感測器有料',' · sensor sees filament'):''));
@@ -470,6 +489,9 @@ nofeed_mm:'While printing, if %P extrudes this much and the feeder never tops up
 extruder_extra_mm:'With “Stop loading at the extruder” on, the feeder feeds this much more after the sensor sees the filament, and the load distance becomes a limit. About 10 mm when the sensor sits at the extruder; for a sensor far from it (next to the spool, say) enter that tube length.',
 lock_move_distance:'Unticked, a load that reaches the sensor recalibrates “Feed distance”, and full unloads learn their length. Ticked, only the two distances under Controls are used, and a full unload is limited by “Retract distance”. Tick it once the distances are right and should stay that way.',
 stop_unload_at_in2:'Experimental filament capture: stop the feeder motor immediately when IN2 changes to empty during an unload. Unticked keeps the original behaviour, which retracts 15 mm farther so the filament clears the gear completely.',
+feed_distance_from_hub_main:'If Hub Main starts empty and detects filament before the feed finishes, reset the distance counter once and feed the requested distance from there. If Hub Main starts occupied, never triggers, or the hub is unavailable, use the original distance. The extruder stop still applies.',
+stop_unload_at_hub_main:'Arms only if the hub is detected and Hub Main sees filament at the start of the unload. When Hub Main clears, retract the extra distance below, then stop. With Stop at IN2 also armed, IN2 clearing before or together with Hub Main stops the motor with an error. Once Hub Main has cleared, IN2 can end the extra retraction early.',
+hub_main_unload_extra_mm:'Maximum extra retraction after Hub Main clears (0–1000 mm, default 80 mm). Set 0 to halt immediately. For a distance unload, the requested retract distance still applies. An armed IN2 stop can end this extra move early.',
 free_on_unload:'When the unload G-code sends <code>M117 PBF:FREE</code>, the motor is switched off and the gear spins freely, so %P pulls the filament out for tip forming; a bare <code>M117</code> at the end of the G-code grips again. Without that line in the unload G-code this never happens.',
 free_on_retract:'Fallback when there is no M117 marker (an unload from the %P touch screen, for example): while %P is not printing and its retractions add up to more than the length below, it counts as an unload and the gear is released. PAUSE retracts only about 3 mm, so it does not trigger this.'}:{
 pressure:'輔助進料時推料的馬達電流（L1＝250mA，每級加 50mA）。太低推不開緩衝活動件，會誤報卡料；太高只是馬達比較熱。建議用「壓力測試」決定。改了<b>立即套用</b>。',
@@ -486,6 +508,9 @@ nofeed_mm:'列印中 %P 擠出了這麼多，喂竹器卻一次都沒輔助進�
 extruder_extra_mm:'「進料到擠出機自動停」開著時，感測器偵測到料後再送這麼多才停，原本的進料距離變成上限。感測器就在擠出機上時約 10mm；感測器離擠出機比較遠（例如裝在料架旁）就填那段管長。',
 lock_move_distance:'不勾時，進料碰到感測器會自動校準「距離進料」，完整退料也會學習退料長度。勾選後只用操作區填的兩個距離，「退到無料」的上限也直接用「距離退料」。距離量好、不想再被自動改寫時才勾。',
 stop_unload_at_in2:'實驗性保留耗材：退料時 IN2 變成無料就立刻停止馬達。不勾選時維持原本行為，繼續退 15mm，讓耗材完全退出齒輪。',
+feed_distance_from_hub_main:'開始進料時 Hub Main 無料，且在進料完成前偵測到料，就將距離計數歸零一次，從該處重新送出設定距離。開始時已有料、未觸發，或未偵測到集線器時，使用原本的距離。擠出機感測器仍可停止進料。',
+stop_unload_at_hub_main:'只有開始退料時偵測到集線器，且 Hub Main 有料才啟用。Hub Main 變成無料後，再退下方設定的距離。若 IN2 停止功能也已啟用，IN2 比 Hub Main 先變無料或同時變無料會停機報錯。Hub Main 已變無料後，IN2 可提前停止額外退料。',
+hub_main_unload_extra_mm:'Hub Main 變成無料後最多再退的距離（0–1000 mm，預設 80 mm）。設為 0 立即停止。距離退料仍受設定距離限制。已啟用的 IN2 停止功能可提前停止額外退料。',
 free_on_unload:'退料 G-code 送出 <code>M117 PBF:FREE</code> 時，馬達斷電讓齒輪空轉，%P 自己把料抽出來做尖端成形；G-code 結尾送 <code>M117</code> 清掉就夾回來。退料 G-code 裡沒有這行就不會觸發。',
 free_on_retract:'沒有 M117 訊號時（例如用 %P 觸控螢幕退料）的備援：%P 沒在列印、累計回抽超過下面設定的長度，就當成退料並放開齒輪。PAUSE 只回抽約 3mm，不會誤觸發。'};
 {const box=document.createElement('div');box.className='help';box.id='helpbox';let open=null;

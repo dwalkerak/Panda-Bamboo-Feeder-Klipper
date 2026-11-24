@@ -41,8 +41,10 @@ with tempfile.TemporaryDirectory(prefix="pbf-regressions-") as directory:
         "bool applyValue(", "bool validate(", "bool set(",
     ])
     feeder = functions("feeder.cpp", [
+        "void startLoadMove(", "void armHubLoad()", "void resetLoadAtHub()", "void armHubUnload()",
         "float pathMm()", "float fullUnloadLimit()", "bool bufferFull(", "bool bufferEmpty(",
-        "float relaxLimitMm()", "void relaxTick(", "void endHoldMessage(", "void updateUnloading(",
+        "float relaxLimitMm()", "void relaxTick(", "void endHoldMessage(",
+        "bool updateHubUnload(", "void updateUnloading(",
         "bool locked()", "String lockText()", "String lockReason()",
         "bool printerHasActivePrint()", "void ptestEnd(", "const char *testRefusal()",
         "void btestEnd(", "void stopTests(", "void freeTick(",
